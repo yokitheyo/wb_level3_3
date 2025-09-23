@@ -15,8 +15,12 @@ import (
 	"github.com/wb-go/wbf/redis"
 	"github.com/wb-go/wbf/zlog"
 
+	"github.com/yokitheyo/wb_level3_3/internal/api"
+	"github.com/yokitheyo/wb_level3_3/internal/app"
+	"github.com/yokitheyo/wb_level3_3/internal/cache"
 	"github.com/yokitheyo/wb_level3_3/internal/config"
 	"github.com/yokitheyo/wb_level3_3/internal/repository/postgres"
+	"github.com/yokitheyo/wb_level3_3/internal/retry"
 	"github.com/yokitheyo/wb_level3_3/internal/usecase"
 )
 
@@ -63,6 +67,7 @@ func main() {
 	for i := 0; i < cfg.Database.ConnectRetries; i++ {
 		database, err = dbpg.New(masterDSN, slaves, dbOpts)
 		if err == nil {
+			// ping master to ensure it's ready
 			if pingErr := database.Master.Ping(); pingErr == nil {
 				break
 			} else {
@@ -86,7 +91,6 @@ func main() {
 	repo := postgres.NewCommentRepository(database)
 	uc := usecase.NewCommentUsecase(repo)
 
-	// optional: init redis cache if configured
 	var cacheSvc *cache.RedisCache
 	if cfg.Redis != nil && cfg.Redis.Addr != "" {
 		rdb := redis.New(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
@@ -94,13 +98,9 @@ func main() {
 		zlog.Logger.Info().Str("redis", cfg.Redis.Addr).Msg("redis cache initialized")
 	}
 
-	// combine into app (aggregates repo/cache/usecase)
 	appSvc := app.NewApp(repo, cacheSvc, uc)
-
-	// --- Create API server (internal/api should provide NewAPI(app) returning server with Start/Stop)
 	apiServer := api.NewAPI(appSvc)
 
-	// start API server in goroutine
 	go func() {
 		zlog.Logger.Info().Str("addr", cfg.Server.Addr).Msg("starting HTTP server")
 		if err := apiServer.Start(cfg.Server.Addr); err != nil && err != http.ErrServerClosed {
@@ -108,12 +108,28 @@ func main() {
 		}
 	}()
 
-	// wait for shutdown signal
 	<-ctx.Done()
 	zlog.Logger.Info().Msg("shutdown signal received")
 
-	// give api server some time to stop gracefully
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.ShutdownTimeoutSec)*time.Second)
 	defer cancel()
 
-	if err := a
+	if err := apiServer.Stop(shutdownCtx); err != nil {
+		zlog.Logger.Error().Err(err).Msg("apiServer.Stop failed")
+	} else {
+		zlog.Logger.Info().Msg("apiServer stopped gracefully")
+	}
+
+	if err := database.Master.Close(); err != nil {
+		zlog.Logger.Error().Err(err).Msg("closing db master failed")
+	} else {
+		zlog.Logger.Info().Msg("db master closed")
+	}
+	for i, s := range database.Slaves {
+		if err := s.Close(); err != nil {
+			zlog.Logger.Error().Err(err).Int("slave_index", i).Msg("closing db slave failed")
+		}
+	}
+
+	zlog.Logger.Info().Msg("shutdown complete")
+}
