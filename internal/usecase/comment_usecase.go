@@ -97,7 +97,7 @@ func (u *CommentUsecase) DeleteThread(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (u *CommentUsecase) SearchComments(ctx context.Context, q string, limit, offset int) ([]*domain.Comment, error) {
+func (u *CommentUsecase) SearchComment(ctx context.Context, q string, limit, offset int) ([]*domain.Comment, error) {
 	if q == "" {
 		return nil, errors.New("empty query")
 	}

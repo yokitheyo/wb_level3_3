@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,21 +9,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pressly/goose/v3"
 	"github.com/wb-go/wbf/dbpg"
-	"github.com/wb-go/wbf/redis"
+	"github.com/wb-go/wbf/ginext"
 	"github.com/wb-go/wbf/zlog"
-
-	"github.com/yokitheyo/wb_level3_3/internal/api"
-	"github.com/yokitheyo/wb_level3_3/internal/app"
-	"github.com/yokitheyo/wb_level3_3/internal/cache"
-	"github.com/yokitheyo/wb_level3_3/internal/config"
-	"github.com/yokitheyo/wb_level3_3/internal/repository/postgres"
+	"github.com/yokitheyo/wb_level3_3/internal/db"
 	"github.com/yokitheyo/wb_level3_3/internal/retry"
+
+	"github.com/yokitheyo/wb_level3_3/internal/config"
+	httpHandler "github.com/yokitheyo/wb_level3_3/internal/handler/http"
+	"github.com/yokitheyo/wb_level3_3/internal/repository/postgres"
 	"github.com/yokitheyo/wb_level3_3/internal/usecase"
 )
 
-// splitAndTrim splits s by sep and trims results.
+// splitAndTrim splits s by sep and trims empty parts.
 func splitAndTrim(s, sep string) []string {
 	parts := strings.Split(s, sep)
 	out := make([]string, 0, len(parts))
@@ -43,6 +40,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Load config
 	configPath := "config.yaml"
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		configPath = "/app/config.yaml"
@@ -52,6 +50,7 @@ func main() {
 		zlog.Logger.Fatal().Err(err).Msg("failed to load config")
 	}
 
+	// Setup DB
 	masterDSN := cfg.Database.DSN
 	slaves := []string{}
 	if strings.TrimSpace(cfg.Database.Slaves) != "" {
@@ -81,42 +80,47 @@ func main() {
 		zlog.Logger.Fatal().Err(err).Msg("failed to connect to database after retries")
 	}
 
-	goose.SetDialect("postgres")
-	if err := goose.Up(database.Master, cfg.Migrations.Path); err != nil {
+	// Run migrations
+	if err := db.RunMigrations(database, cfg.Migrations.Path); err != nil {
 		zlog.Logger.Fatal().Err(err).Msg("migrations failed")
 	}
-	zlog.Logger.Info().Msg("migrations applied")
 
-	repo := postgres.NewCommentRepository(database)
+	// Setup repository and usecase
+	repo := postgres.NewCommentRepository(database, retry.DefaultStrategy)
+
 	uc := usecase.NewCommentUsecase(repo)
 
-	var cacheSvc *cache.RedisCache
-	if cfg.Redis != nil && cfg.Redis.Addr != "" {
-		rdb := redis.New(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
-		cacheSvc = cache.NewRedisCache(rdb, cfg.Cache.Prefix, retry.DefaultStrategy)
-		zlog.Logger.Info().Str("redis", cfg.Redis.Addr).Msg("redis cache initialized")
-	}
+	// Setup Gin engine + handlers
+	engine := ginext.New()
+	engine.Use(ginext.Logger(), ginext.Recovery())
 
-	appSvc := app.NewApp(repo, cacheSvc, uc)
-	apiServer := api.NewAPI(appSvc)
+	commentHandler := httpHandler.NewCommentHandler(uc)
+	commentHandler.RegisterRoutes(engine)
+
+	// Start HTTP server
+	srv := &http.Server{
+		Addr:    cfg.Server.Addr,
+		Handler: engine,
+	}
 
 	go func() {
 		zlog.Logger.Info().Str("addr", cfg.Server.Addr).Msg("starting HTTP server")
-		if err := apiServer.Start(cfg.Server.Addr); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			zlog.Logger.Fatal().Err(err).Msg("failed to start API server")
 		}
 	}()
 
+	// Graceful shutdown
 	<-ctx.Done()
 	zlog.Logger.Info().Msg("shutdown signal received")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.ShutdownTimeoutSec)*time.Second)
 	defer cancel()
 
-	if err := apiServer.Stop(shutdownCtx); err != nil {
-		zlog.Logger.Error().Err(err).Msg("apiServer.Stop failed")
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		zlog.Logger.Error().Err(err).Msg("HTTP server shutdown failed")
 	} else {
-		zlog.Logger.Info().Msg("apiServer stopped gracefully")
+		zlog.Logger.Info().Msg("HTTP server stopped gracefully")
 	}
 
 	if err := database.Master.Close(); err != nil {
