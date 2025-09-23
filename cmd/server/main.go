@@ -12,7 +12,8 @@ import (
 	"github.com/wb-go/wbf/dbpg"
 	"github.com/wb-go/wbf/ginext"
 	"github.com/wb-go/wbf/zlog"
-	"github.com/yokitheyo/wb_level3_3/internal/db"
+	"github.com/yokitheyo/wb_level3_3/internal/handler/middleware"
+	infradatabase "github.com/yokitheyo/wb_level3_3/internal/infrastructure/database"
 	"github.com/yokitheyo/wb_level3_3/internal/retry"
 
 	"github.com/yokitheyo/wb_level3_3/internal/config"
@@ -81,7 +82,7 @@ func main() {
 	}
 
 	// Run migrations
-	if err := db.RunMigrations(database, cfg.Migrations.Path); err != nil {
+	if err := infradatabase.RunMigrations(database, cfg.Migrations.Path); err != nil {
 		zlog.Logger.Fatal().Err(err).Msg("migrations failed")
 	}
 
@@ -92,7 +93,7 @@ func main() {
 
 	// Setup Gin engine + handlers
 	engine := ginext.New()
-	engine.Use(ginext.Logger(), ginext.Recovery())
+	engine.Use(middleware.LoggerMiddleware(), middleware.CORSMiddleware())
 
 	commentHandler := httpHandler.NewCommentHandler(uc)
 	commentHandler.RegisterRoutes(engine)
