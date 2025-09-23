@@ -1,0 +1,56 @@
+# Файлы и папки, которые не должны попасть в Docker образ
+.git
+.gitignore
+README.md
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Binaries
+/bin/
+/out/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Output directory
+/output/
+
+# Dependency directories
+/vendor/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+/logs/
+
+# Cache
+/.cache/
+
+# Docker files (избегаем рекурсии)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Go specific
+go.sum

@@ -14,6 +14,7 @@ import (
 	"github.com/wb-go/wbf/zlog"
 	"github.com/yokitheyo/wb_level3_3/internal/handler/middleware"
 	infradatabase "github.com/yokitheyo/wb_level3_3/internal/infrastructure/database"
+	"github.com/yokitheyo/wb_level3_3/internal/infrastructure/search"
 	"github.com/yokitheyo/wb_level3_3/internal/retry"
 
 	"github.com/yokitheyo/wb_level3_3/internal/config"
@@ -89,7 +90,11 @@ func main() {
 	// Setup repository and usecase
 	repo := postgres.NewCommentRepository(database, retry.DefaultStrategy)
 
-	uc := usecase.NewCommentUsecase(repo)
+	// Full-text search adapter
+	fts := search.NewPostgresFullText(repo)
+
+	// Setup usecase с search
+	uc := usecase.NewCommentUsecase(repo, fts)
 
 	// Setup Gin engine + handlers
 	engine := ginext.New()

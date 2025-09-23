@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # PostgreSQL база данных
+  db:
+    image: postgres:15-alpine
+    container_name: commenttree_db
+    environment:
+      POSTGRES_DB: commenttree
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d commenttree"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - commenttree_network
+
+  # Go приложение
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: commenttree_app
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_DSN=postgres://postgres:postgres@db:5432/commenttree?sslmode=disable
+    volumes:
+      # Если нужно монтировать конфиг из хоста
+      # - ./config.yaml:/app/config.yaml:ro
+      # Для логов (опционально)
+      - ./logs:/app/logs
+    networks:
+      - commenttree_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/comments"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx для статических файлов и проксирования (опционально)
+  nginx:
+    image: nginx:alpine
+    container_name: commenttree_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./static:/usr/share/nginx/html:ro
+    depends_on:
+      - app
+    networks:
+      - commenttree_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  commenttree_network:
+    driver: bridge

@@ -6,16 +6,21 @@ import (
 	"sync"
 
 	"github.com/wb-go/wbf/zlog"
+	"github.com/yokitheyo/wb_level3_3/internal/infrastructure/search"
 
 	"github.com/yokitheyo/wb_level3_3/internal/domain"
 )
 
 type CommentUsecase struct {
-	repo domain.CommentRepository
+	repo   domain.CommentRepository
+	search search.FullTextSearcher
 }
 
-func NewCommentUsecase(repo domain.CommentRepository) *CommentUsecase {
-	return &CommentUsecase{repo: repo}
+func NewCommentUsecase(repo domain.CommentRepository, search search.FullTextSearcher) *CommentUsecase {
+	return &CommentUsecase{
+		repo:   repo,
+		search: search,
+	}
 }
 
 func (u *CommentUsecase) CreateComment(ctx context.Context, parentID *int64, author, content string) (*domain.Comment, error) {
@@ -101,10 +106,5 @@ func (u *CommentUsecase) SearchComment(ctx context.Context, q string, limit, off
 	if q == "" {
 		return nil, errors.New("empty query")
 	}
-	res, err := u.repo.Search(ctx, q, limit, offset)
-	if err != nil {
-		zlog.Logger.Error().Err(err).Msg("usecase: Search failed")
-		return nil, err
-	}
-	return res, nil
+	return u.search.SearchComments(ctx, q, limit, offset)
 }
