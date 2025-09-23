@@ -1,110 +1,154 @@
-package usecase
+package postgres
 
 import (
 	"context"
-	"errors"
-	"sync"
+	"database/sql"
+	"fmt"
+	"time"
 
+	"github.com/wb-go/wbf/retry"
 	"github.com/wb-go/wbf/zlog"
 
+	"github.com/wb-go/wbf/dbpg"
 	"github.com/yokitheyo/wb_level3_3/internal/domain"
 )
 
-type CommentUsecase struct {
-	repo domain.CommentRepository
+type commentRepository struct {
+	db       *dbpg.DB
+	strategy retry.Strategy
 }
 
-func NewCommentUsecase(repo domain.CommentRepository) *CommentUsecase {
-	return &CommentUsecase{repo: repo}
+func NewCommentRepository(db *dbpg.DB, strategy retry.Strategy) domain.CommentRepository {
+	return &commentRepository{db: db, strategy: strategy}
 }
 
-func (u *CommentUsecase) CreateComment(ctx context.Context, parentID *int64, author, content string) (*domain.Comment, error) {
-	if author == "" {
-		return nil, errors.New("author required")
-	}
-	if content == "" {
-		return nil, errors.New("content required")
-	}
+func (r *commentRepository) Save(ctx context.Context, c *domain.Comment) error {
+	query := `
+		INSERT INTO comments (parent_id, author, content, created_at, updated_at, deleted)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at, updated_at
+	`
+	return r.db.Master.QueryRowContext(ctx, query,
+		c.ParentID,
+		c.Author,
+		c.Content,
+		c.CreatedAt,
+		c.UpdatedAt,
+		c.Deleted,
+	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
+}
 
-	c := &domain.Comment{
-		ParentID: parentID,
-		Author:   author,
-		Content:  content,
-	}
+func (r *commentRepository) FindByID(ctx context.Context, id int64) (*domain.Comment, error) {
+	query := `
+		SELECT id, parent_id, author, content, created_at, updated_at, deleted
+		FROM comments
+		WHERE id = $1
+	`
 
-	if err := u.repo.Save(ctx, c); err != nil {
-		zlog.Logger.Error().Err(err).Msg("usecase: Save comment failed")
+	c := &domain.Comment{}
+	var parent sql.NullInt64
+	var updated sql.NullTime
+
+	row := r.db.Master.QueryRowContext(ctx, query, id)
+	err := row.Scan(&c.ID, &parent, &c.Author, &c.Content, &c.CreatedAt, &updated, &c.Deleted)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		zlog.Logger.Error().Err(err).Msg("FindByID failed")
 		return nil, err
 	}
 
-	zlog.Logger.Info().Msgf("comment created id=%d parent=%v", c.ID, c.ParentID)
+	if parent.Valid {
+		c.ParentID = &parent.Int64
+	}
+	if updated.Valid {
+		c.UpdatedAt = &updated.Time
+	}
+
 	return c, nil
 }
 
-func (u *CommentUsecase) GetThread(ctx context.Context, parentID *int64, limit, offset int, sort string) ([]*domain.Comment, error) {
-	roots, err := u.repo.FindChildren(ctx, parentID, limit, offset, sort)
-	if err != nil {
-		zlog.Logger.Error().Err(err).Msg("usecase: FindChildren failed")
-		return nil, err
+func (r *commentRepository) FindChildren(ctx context.Context, parentID *int64, limit, offset int, sort string) ([]*domain.Comment, error) {
+	order := "created_at ASC"
+	if sort == "desc" {
+		order = "created_at DESC"
 	}
 
-	if parentID == nil && len(roots) > 0 {
-		out := make([]*domain.Comment, 0, len(roots))
-		var wg sync.WaitGroup
-		var mu sync.Mutex
+	query := fmt.Sprintf(`
+		SELECT id, parent_id, author, content, created_at, updated_at, deleted
+		FROM comments
+		WHERE parent_id = $1
+		ORDER BY %s
+		LIMIT $2 OFFSET $3
+	`, order)
 
-		for _, root := range roots {
-			wg.Add(1)
-			go func(r *domain.Comment) {
-				defer wg.Done()
-				sub, err := u.repo.FindChildren(ctx, &r.ID, 0, 0, "asc")
-				if err != nil {
-					zlog.Logger.Error().Err(err).Msgf("usecase: FindChildren for root %d failed", r.ID)
-					mu.Lock()
-					out = append(out, r)
-					mu.Unlock()
-					return
-				}
-				if len(sub) > 0 {
-					mu.Lock()
-					out = append(out, sub[0])
-					mu.Unlock()
-					return
-				}
-				// fallback
-				mu.Lock()
-				out = append(out, r)
-				mu.Unlock()
-			}(root)
+	rows, err := r.db.QueryWithRetry(ctx, r.strategy, query, parentID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var comments []*domain.Comment
+	for rows.Next() {
+		c := &domain.Comment{}
+		if err := rows.Scan(
+			&c.ID,
+			&c.ParentID,
+			&c.Author,
+			&c.Content,
+			&c.CreatedAt,
+			&c.UpdatedAt,
+			&c.Deleted,
+		); err != nil {
+			return nil, err
 		}
-
-		wg.Wait()
-		return out, nil
+		comments = append(comments, c)
 	}
 
-	return roots, nil
+	return comments, nil
 }
 
-func (u *CommentUsecase) DeleteThread(ctx context.Context, id int64) error {
-	if id <= 0 {
-		return errors.New("invalid id")
-	}
-	if err := u.repo.Delete(ctx, id); err != nil {
-		zlog.Logger.Error().Err(err).Msgf("usecase: Delete failed id=%d", id)
-		return err
-	}
-	zlog.Logger.Info().Msgf("comment deleted id=%d", id)
-	return nil
+func (r *commentRepository) Delete(ctx context.Context, id int64) error {
+	_, err := r.db.ExecWithRetry(ctx, r.strategy, `
+		UPDATE comments
+		SET deleted = true, updated_at = $2
+		WHERE id = $1
+	`, id, time.Now())
+	return err
 }
 
-func (u *CommentUsecase) SearchComments(ctx context.Context, q string, limit, offset int) ([]*domain.Comment, error) {
-	if q == "" {
-		return nil, errors.New("empty query")
-	}
-	res, err := u.repo.Search(ctx, q, limit, offset)
+func (r *commentRepository) Search(ctx context.Context, q string, limit, offset int) ([]*domain.Comment, error) {
+	query := `
+		SELECT id, parent_id, author, content, created_at, updated_at, deleted
+		FROM comments
+		WHERE content_tsv @@ plainto_tsquery('russian', $1)
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryWithRetry(ctx, r.strategy, query, q, limit, offset)
 	if err != nil {
-		zlog.Logger.Error().Err(err).Msg("usecase: Search failed")
 		return nil, err
 	}
-	return res, nil
+	defer rows.Close()
+
+	var comments []*domain.Comment
+	for rows.Next() {
+		c := &domain.Comment{}
+		if err := rows.Scan(
+			&c.ID,
+			&c.ParentID,
+			&c.Author,
+			&c.Content,
+			&c.CreatedAt,
+			&c.UpdatedAt,
+			&c.Deleted,
+		); err != nil {
+			return nil, err
+		}
+		comments = append(comments, c)
+	}
+
+	return comments, nil
 }

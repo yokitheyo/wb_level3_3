@@ -67,7 +67,6 @@ func main() {
 	for i := 0; i < cfg.Database.ConnectRetries; i++ {
 		database, err = dbpg.New(masterDSN, slaves, dbOpts)
 		if err == nil {
-			// ping master to ensure it's ready
 			if pingErr := database.Master.Ping(); pingErr == nil {
 				break
 			} else {
