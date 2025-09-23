@@ -7,6 +7,7 @@ import (
 	"github.com/wb-go/wbf/ginext"
 	"github.com/wb-go/wbf/zlog"
 	"github.com/yokitheyo/wb_level3_3/internal/domain"
+	"github.com/yokitheyo/wb_level3_3/internal/dto"
 )
 
 // CommentHandler обрабатывает HTTP-запросы по комментариям.
@@ -30,11 +31,7 @@ func (h *CommentHandler) RegisterRoutes(engine *ginext.Engine) {
 
 // CreateComment POST /comments
 func (h *CommentHandler) CreateComment(c *ginext.Context) {
-	var req struct {
-		ParentID *int64 `json:"parent_id"`
-		Author   string `json:"author"`
-		Content  string `json:"content"`
-	}
+	var req dto.CreateCommentRequest
 	if err := c.BindJSON(&req); err != nil {
 		zlog.Logger.Warn().Err(err).Msg("invalid request body")
 		c.JSON(http.StatusBadRequest, ginext.H{"error": "invalid request"})
@@ -48,7 +45,8 @@ func (h *CommentHandler) CreateComment(c *ginext.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, comment)
+	c.JSON(http.StatusCreated, mapToCommentResponse(comment))
+
 }
 
 // GetComments GET /comments?parent={id}&limit=&offset=&sort=
@@ -84,7 +82,7 @@ func (h *CommentHandler) GetComments(c *ginext.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, comments)
+	c.JSON(http.StatusOK, mapToCommentResponses(comments))
 }
 
 // DeleteComment DELETE /comments/:id
@@ -134,4 +132,34 @@ func (h *CommentHandler) SearchComments(c *ginext.Context) {
 	}
 
 	c.JSON(http.StatusOK, comments)
+}
+
+func mapToCommentResponse(c *domain.Comment) *dto.CommentResponse {
+	if c == nil {
+		return nil
+	}
+
+	children := make([]*dto.CommentResponse, 0, len(c.Children))
+	for _, ch := range c.Children {
+		children = append(children, mapToCommentResponse(ch))
+	}
+
+	return &dto.CommentResponse{
+		ID:        c.ID,
+		ParentID:  c.ParentID,
+		Content:   c.Content,
+		Author:    c.Author,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
+		Deleted:   c.Deleted,
+		Children:  children,
+	}
+}
+
+func mapToCommentResponses(list []*domain.Comment) []*dto.CommentResponse {
+	out := make([]*dto.CommentResponse, 0, len(list))
+	for _, c := range list {
+		out = append(out, mapToCommentResponse(c))
+	}
+	return out
 }
