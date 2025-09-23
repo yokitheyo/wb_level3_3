@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CommentTree - Древовидные комментарии</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+    <header class="header">
+        <h1>CommentTree</h1>
+        <p>Древовидные комментарии с поиском</p>
+    </header>
+
+    <div class="search-section">
+        <div class="search-box">
+            <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Поиск по комментариям..."
+                    class="search-input"
+            >
+            <button id="searchBtn" class="search-btn">Найти</button>
+            <button id="clearBtn" class="clear-btn">Очистить</button>
+        </div>
+    </div>
+
+    <div class="add-comment-section">
+        <div class="comment-form">
+            <input
+                    type="text"
+                    id="authorInput"
+                    placeholder="Ваше имя"
+                    class="author-input"
+                    maxlength="100"
+            >
+            <textarea
+                    id="contentInput"
+                    placeholder="Напишите комментарий..."
+                    class="content-input"
+                    rows="3"
+                    maxlength="1000"
+            ></textarea>
+            <button id="addCommentBtn" class="add-btn">Добавить комментарий</button>
+        </div>
+    </div>
+
+    <div class="comments-section">
+        <div class="comments-header">
+            <h2>Комментарии</h2>
+            <div class="sort-controls">
+                <label>Сортировка:</label>
+                <select id="sortSelect" class="sort-select">
+                    <option value="asc">Сначала старые</option>
+                    <option value="desc">Сначала новые</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="commentsContainer" class="comments-container">
+            <div class="loading" id="loading">Загрузка...</div>
+            <div class="no-comments" id="noComments" style="display: none;">
+                Комментариев пока нет. Станьте первым!
+            </div>
+        </div>
+
+        <div class="pagination">
+            <button id="prevBtn" class="page-btn" disabled>← Предыдущая</button>
+            <span id="pageInfo" class="page-info">Страница 1</span>
+            <button id="nextBtn" class="page-btn">Следующая →</button>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для ответа на комментарий -->
+<div id="replyModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Ответить на комментарий</h3>
+            <button class="close-btn" id="closeModal">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="reply-to" id="replyTo"></div>
+            <input
+                    type="text"
+                    id="replyAuthorInput"
+                    placeholder="Ваше имя"
+                    class="author-input"
+                    maxlength="100"
+            >
+            <textarea
+                    id="replyContentInput"
+                    placeholder="Ваш ответ..."
+                    class="content-input"
+                    rows="4"
+                    maxlength="1000"
+            ></textarea>
+            <div class="modal-actions">
+                <button id="submitReplyBtn" class="add-btn">Отправить ответ</button>
+                <button id="cancelReplyBtn" class="cancel-btn">Отмена</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

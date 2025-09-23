@@ -100,6 +100,8 @@ func main() {
 	engine := ginext.New()
 	engine.Use(middleware.LoggerMiddleware(), middleware.CORSMiddleware())
 
+	engine.Static("/", "./static")
+
 	commentHandler := httpHandler.NewCommentHandler(uc)
 	commentHandler.RegisterRoutes(engine)
 
