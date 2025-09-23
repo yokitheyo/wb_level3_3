@@ -1,0 +1,52 @@
+# Binaries для программ
+/bin/
+/out/
+
+# Go специфичные файлы
+/go.sum
+/go.env
+
+# Игнорируем бинарные файлы программ
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Игнорируем бинарные файлы тестов
+*.test
+
+# Игнорируем output директорию
+/output/
+
+# Файлы зависимостей (если используете)
+/vendor/
+
+# IDE специфичные файлы
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS специфичные файлы
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Логи
+*.log
+
+# Конфигурационные файлы с чувствительной информацией
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Кэш Go
+/.cache/
