@@ -1,0 +1,28 @@
+server:
+  addr: ":8080"
+  shutdown_timeout_sec: 15
+  read_timeout_sec: 10
+  write_timeout_sec: 10
+
+database:
+  dsn: "postgres://postgres:postgres@db:5432/commenttree?sslmode=disable"
+  slaves: ""
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime_sec: 1800
+  connect_retries: 10
+  connect_retry_delay_sec: 3
+
+migrations:
+  path: "./migrations"
+
+redis:
+  addr: ""
+  password: ""
+  db: 0
+
+cache:
+  prefix: "ct:"
+
+logging:
+  level: "info"
