@@ -73,16 +73,32 @@ func (r *commentRepository) FindChildren(ctx context.Context, parentID *int64, l
 		order = "created_at DESC"
 	}
 
-	query := fmt.Sprintf(`
-		SELECT id, parent_id, author, content, created_at, updated_at, deleted
-		FROM comments
-		WHERE parent_id = $1
-		ORDER BY %s
-		LIMIT $2 OFFSET $3
-	`, order)
+	var query string
+	var args []interface{}
 
-	rows, err := r.db.QueryWithRetry(ctx, r.strategy, query, parentID, limit, offset)
+	if parentID == nil {
+		query = fmt.Sprintf(`
+			SELECT id, parent_id, author, content, created_at, updated_at, deleted
+			FROM comments
+			WHERE parent_id IS NULL AND deleted = false
+			ORDER BY %s
+			LIMIT $1 OFFSET $2
+		`, order)
+		args = []interface{}{limit, offset}
+	} else {
+		query = fmt.Sprintf(`
+			SELECT id, parent_id, author, content, created_at, updated_at, deleted
+			FROM comments
+			WHERE parent_id = $1 AND deleted = false
+			ORDER BY %s
+			LIMIT $2 OFFSET $3
+		`, order)
+		args = []interface{}{*parentID, limit, offset}
+	}
+
+	rows, err := r.db.QueryWithRetry(ctx, r.strategy, query, args...)
 	if err != nil {
+		zlog.Logger.Error().Err(err).Msg("FindChildren query failed")
 		return nil, err
 	}
 	defer rows.Close()
@@ -90,20 +106,38 @@ func (r *commentRepository) FindChildren(ctx context.Context, parentID *int64, l
 	var comments []*domain.Comment
 	for rows.Next() {
 		c := &domain.Comment{}
+		var parent sql.NullInt64
+		var updated sql.NullTime
+
 		if err := rows.Scan(
 			&c.ID,
-			&c.ParentID,
+			&parent,
 			&c.Author,
 			&c.Content,
 			&c.CreatedAt,
-			&c.UpdatedAt,
+			&updated,
 			&c.Deleted,
 		); err != nil {
+			zlog.Logger.Error().Err(err).Msg("FindChildren scan failed")
 			return nil, err
 		}
+
+		if parent.Valid {
+			c.ParentID = &parent.Int64
+		}
+		if updated.Valid {
+			c.UpdatedAt = &updated.Time
+		}
+
 		comments = append(comments, c)
 	}
 
+	if err := rows.Err(); err != nil {
+		zlog.Logger.Error().Err(err).Msg("FindChildren rows iteration failed")
+		return nil, err
+	}
+
+	zlog.Logger.Info().Msgf("FindChildren returned %d comments for parent_id=%v", len(comments), parentID)
 	return comments, nil
 }
 
@@ -120,13 +154,17 @@ func (r *commentRepository) Search(ctx context.Context, q string, limit, offset 
 	query := `
 		SELECT id, parent_id, author, content, created_at, updated_at, deleted
 		FROM comments
-		WHERE content_tsv @@ plainto_tsquery('russian', $1)
+		WHERE (content ILIKE '%' || $1 || '%' OR author ILIKE '%' || $1 || '%')
+		AND deleted = false
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
+	zlog.Logger.Info().Msgf("Simple search query: %s, limit: %d, offset: %d", q, limit, offset)
+
 	rows, err := r.db.QueryWithRetry(ctx, r.strategy, query, q, limit, offset)
 	if err != nil {
+		zlog.Logger.Error().Err(err).Msg("Search query failed")
 		return nil, err
 	}
 	defer rows.Close()
@@ -134,19 +172,83 @@ func (r *commentRepository) Search(ctx context.Context, q string, limit, offset 
 	var comments []*domain.Comment
 	for rows.Next() {
 		c := &domain.Comment{}
+		var parent sql.NullInt64
+		var updated sql.NullTime
+
 		if err := rows.Scan(
 			&c.ID,
-			&c.ParentID,
+			&parent,
 			&c.Author,
 			&c.Content,
 			&c.CreatedAt,
-			&c.UpdatedAt,
+			&updated,
+			&c.Deleted,
+		); err != nil {
+			zlog.Logger.Error().Err(err).Msg("Search scan failed")
+			return nil, err
+		}
+
+		if parent.Valid {
+			c.ParentID = &parent.Int64
+		}
+		if updated.Valid {
+			c.UpdatedAt = &updated.Time
+		}
+
+		comments = append(comments, c)
+	}
+
+	zlog.Logger.Info().Msgf("Simple search returned %d comments for query: %s", len(comments), q)
+	return comments, nil
+}
+
+func (r *commentRepository) searchFallback(ctx context.Context, q string, limit, offset int) ([]*domain.Comment, error) {
+	query := `
+		SELECT id, parent_id, author, content, created_at, updated_at, deleted
+		FROM comments
+		WHERE (content ILIKE '%' || $1 || '%' OR author ILIKE '%' || $1 || '%')
+		AND deleted = false
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	zlog.Logger.Info().Msgf("Using fallback search for query: %s", q)
+
+	rows, err := r.db.QueryWithRetry(ctx, r.strategy, query, q, limit, offset)
+	if err != nil {
+		zlog.Logger.Error().Err(err).Msg("Fallback search failed")
+		return nil, err
+	}
+	defer rows.Close()
+
+	var comments []*domain.Comment
+	for rows.Next() {
+		c := &domain.Comment{}
+		var parent sql.NullInt64
+		var updated sql.NullTime
+
+		if err := rows.Scan(
+			&c.ID,
+			&parent,
+			&c.Author,
+			&c.Content,
+			&c.CreatedAt,
+			&updated,
 			&c.Deleted,
 		); err != nil {
 			return nil, err
 		}
+
+		if parent.Valid {
+			c.ParentID = &parent.Int64
+		}
+		if updated.Valid {
+			c.UpdatedAt = &updated.Time
+		}
+
 		comments = append(comments, c)
 	}
 
+	zlog.Logger.Info().Msgf("Fallback search returned %d comments", len(comments))
 	return comments, nil
 }

@@ -36,13 +36,13 @@ body {
     opacity: 0.9;
 }
 
-.search-section {
+/* Секции поиска и добавления */
+.search-section, .add-comment-section, .comments-section {
     background: white;
     border-radius: 12px;
     padding: 25px;
     margin-bottom: 30px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-    backdrop-filter: blur(10px);
 }
 
 .search-box {
@@ -95,14 +95,7 @@ body {
     background: #e8eaed;
 }
 
-.add-comment-section {
-    background: white;
-    border-radius: 12px;
-    padding: 25px;
-    margin-bottom: 30px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-}
-
+/* Форма добавления комментария */
 .comment-form {
     display: flex;
     flex-direction: column;
@@ -147,85 +140,44 @@ body {
     box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
 }
 
-.comments-section {
-    background: white;
-    border-radius: 12px;
-    padding: 25px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-}
-
-.comments-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 25px;
-    padding-bottom: 15px;
-    border-bottom: 2px solid #f1f3f4;
-}
-
-.comments-header h2 {
-    color: #333;
-    font-size: 1.8rem;
-}
-
-.sort-controls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.sort-select {
-    padding: 8px 12px;
-    border: 2px solid #e1e8ed;
-    border-radius: 6px;
-    font-size: 14px;
-    cursor: pointer;
-}
-
+/* Комментарии */
 .comments-container {
     min-height: 300px;
     position: relative;
 }
 
 .comment {
-    background: #f8f9fa;
+    position: relative;
+    margin-bottom: 12px;
+    padding: 12px 16px;
+    border-left: 3px solid #667eea;
     border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 15px;
-    border-left: 4px solid #667eea;
+    background: #f8f9fa;
     transition: all 0.3s ease;
+    margin-left: calc(var(--level, 0) * 20px);
 }
 
 .comment:hover {
-    transform: translateX(5px);
     box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    transform: translateY(-1px);
 }
 
-.comment.reply {
-    margin-left: 30px;
-    border-left-color: #764ba2;
-    background: #f1f3f6;
-}
-
-.comment.reply.level-2 {
-    margin-left: 60px;
-}
-
-.comment.reply.level-3 {
-    margin-left: 90px;
+.comment::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: calc(-1 * var(--level, 0) * 20px + 10px);
+    width: 2px;
+    height: 100%;
+    background-color: #ccc;
+    z-index: 0;
 }
 
 .comment-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
-}
-
-.comment-meta {
-    display: flex;
-    align-items: center;
-    gap: 15px;
+    margin-bottom: 8px;
 }
 
 .comment-author {
@@ -235,8 +187,8 @@ body {
 }
 
 .comment-date {
-    color: #666;
     font-size: 14px;
+    color: #666;
 }
 
 .comment-actions {
@@ -272,9 +224,10 @@ body {
 }
 
 .comment-content {
-    color: #444;
     font-size: 16px;
+    color: #444;
     line-height: 1.6;
+    margin-left: 34px;
 }
 
 .deleted-comment {
@@ -287,13 +240,7 @@ body {
     color: #999;
 }
 
-.loading, .no-comments {
-    text-align: center;
-    padding: 60px 20px;
-    color: #666;
-    font-size: 18px;
-}
-
+/* Пагинация */
 .pagination {
     display: flex;
     justify-content: center;
@@ -330,7 +277,7 @@ body {
     color: #333;
 }
 
-/* Модальное окно */
+/* Модальные окна */
 .modal {
     display: none;
     position: fixed;
@@ -355,14 +302,8 @@ body {
 }
 
 @keyframes modalSlideIn {
-    from {
-        transform: translateY(-50px);
-        opacity: 0;
-    }
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
+    from { transform: translateY(-50px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
 }
 
 .modal-header {
@@ -371,11 +312,6 @@ body {
     align-items: center;
     padding: 20px 25px;
     border-bottom: 2px solid #f1f3f4;
-}
-
-.modal-header h3 {
-    margin: 0;
-    color: #333;
 }
 
 .close-btn {
@@ -427,47 +363,11 @@ body {
 
 /* Адаптивность */
 @media (max-width: 768px) {
-    .container {
-        padding: 15px;
-    }
-
-    .header h1 {
-        font-size: 2.5rem;
-    }
-
-    .search-box {
-        flex-direction: column;
-    }
-
-    .search-input {
-        width: 100%;
-    }
-
-    .comments-header {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 15px;
-    }
-
-    .comment.reply {
-        margin-left: 20px;
-    }
-
-    .comment.reply.level-2 {
-        margin-left: 40px;
-    }
-
-    .comment.reply.level-3 {
-        margin-left: 60px;
-    }
-
-    .modal-content {
-        margin: 5% auto;
-        width: 95%;
-    }
-
-    .pagination {
-        flex-direction: column;
-        gap: 10px;
-    }
+    .container { padding: 15px; }
+    .header h1 { font-size: 2.5rem; }
+    .search-box { flex-direction: column; }
+    .search-input { width: 100%; }
+    .comments-header { flex-direction: column; align-items: stretch; gap: 15px; }
+    .comment-content { margin-left: 20px; }
+    .modal-content { margin: 5% auto; width: 95%; }
 }

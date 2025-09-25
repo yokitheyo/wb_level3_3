@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"errors"
-	"sync"
 
 	"github.com/wb-go/wbf/zlog"
 	"github.com/yokitheyo/wb_level3_3/internal/infrastructure/search"
@@ -47,47 +46,44 @@ func (u *CommentUsecase) CreateComment(ctx context.Context, parentID *int64, aut
 }
 
 func (u *CommentUsecase) GetThread(ctx context.Context, parentID *int64, limit, offset int, sort string) ([]*domain.Comment, error) {
-	roots, err := u.repo.FindChildren(ctx, parentID, limit, offset, sort)
+	comments, err := u.repo.FindChildren(ctx, parentID, limit, offset, sort)
 	if err != nil {
 		zlog.Logger.Error().Err(err).Msg("usecase: FindChildren failed")
 		return nil, err
 	}
 
-	if parentID == nil && len(roots) > 0 {
-		out := make([]*domain.Comment, 0, len(roots))
-		var wg sync.WaitGroup
-		var mu sync.Mutex
+	zlog.Logger.Info().Msgf("GetThread found %d comments for parent_id=%v", len(comments), parentID)
 
-		for _, root := range roots {
-			wg.Add(1)
-			go func(r *domain.Comment) {
-				defer wg.Done()
-				sub, err := u.repo.FindChildren(ctx, &r.ID, 0, 0, "asc")
-				if err != nil {
-					zlog.Logger.Error().Err(err).Msgf("usecase: FindChildren for root %d failed", r.ID)
-					mu.Lock()
-					out = append(out, r)
-					mu.Unlock()
-					return
-				}
-				if len(sub) > 0 {
-					mu.Lock()
-					out = append(out, sub[0])
-					mu.Unlock()
-					return
-				}
-				// fallback
-				mu.Lock()
-				out = append(out, r)
-				mu.Unlock()
-			}(root)
+	// 🚀 Всегда рекурсивно достраиваем дерево, независимо от уровня
+	for _, comment := range comments {
+		if err := u.loadAllChildren(ctx, comment); err != nil {
+			zlog.Logger.Error().Err(err).Msgf("failed to load children for comment %d", comment.ID)
 		}
-
-		wg.Wait()
-		return out, nil
 	}
 
-	return roots, nil
+	return comments, nil
+}
+
+// loadAllChildren рекурсивно загружает всех детей для комментария
+func (u *CommentUsecase) loadAllChildren(ctx context.Context, comment *domain.Comment) error {
+	// Загружаем всех прямых детей (без лимита для полного дерева)
+	children, err := u.repo.FindChildren(ctx, &comment.ID, 1000, 0, "asc") // Увеличиваем лимит
+	if err != nil {
+		return err
+	}
+
+	comment.Children = children
+	zlog.Logger.Debug().Msgf("loaded %d children for comment %d", len(children), comment.ID)
+
+	// Рекурсивно загружаем детей для каждого ребенка
+	for _, child := range children {
+		if err := u.loadAllChildren(ctx, child); err != nil {
+			zlog.Logger.Error().Err(err).Msgf("failed to load children for comment %d", child.ID)
+			// Продолжаем обработку остальных детей
+		}
+	}
+
+	return nil
 }
 
 func (u *CommentUsecase) DeleteThread(ctx context.Context, id int64) error {
