@@ -13,7 +13,6 @@ type Config struct {
 	Database   DatabaseConfig   `yaml:"database"`
 	Migrations MigrationsConfig `yaml:"migrations"`
 	Redis      RedisConfig      `yaml:"redis"`
-	Cache      CacheConfig      `yaml:"cache"`
 	Logging    LoggingConfig    `yaml:"logging"`
 }
 

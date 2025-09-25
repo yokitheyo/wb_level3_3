@@ -20,7 +20,6 @@ func NewCommentHandler(service domain.CommentService) *CommentHandler {
 	return &CommentHandler{service: service}
 }
 
-// RegisterRoutes регистрирует маршруты комментариев в Engine.
 func (h *CommentHandler) RegisterRoutes(engine *ginext.Engine) {
 	group := engine.Group("/comments")
 	group.POST("", h.CreateComment)

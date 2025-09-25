@@ -9,8 +9,11 @@ import (
 )
 
 func RunMigrations(db *dbpg.DB, migrationsDir string) error {
-	zlog.Logger.Info().Msgf("starting migrations from: %s", migrationsDir)
+	if db == nil || db.Master == nil {
+		return fmt.Errorf("database connection is nil — check DSN or database availability")
+	}
 
+	zlog.Logger.Info().Msgf("starting migrations from: %s", migrationsDir)
 	goose.SetDialect("postgres")
 
 	if err := goose.Up(db.Master, migrationsDir); err != nil {

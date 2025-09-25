@@ -36,6 +36,10 @@ COPY --from=builder /app/config.yaml .
 # Копируем миграции
 COPY --from=builder /app/migrations ./migrations
 
+# Копируем фронтенд-статику
+COPY --from=builder /app/static ./static
+
+
 # Меняем владельца файлов на appuser
 RUN chown -R appuser:appuser /app
 

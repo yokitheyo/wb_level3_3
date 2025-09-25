@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,12 +48,32 @@ func main() {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		configPath = "/app/config.yaml"
 	}
+
+	zlog.Logger.Info().Msgf("Loading config from: %s", configPath)
+
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		zlog.Logger.Fatal().Err(err).Msg("failed to load config")
 	}
+	fmt.Printf("%+v\n", cfg.Database)
 
-	// Setup DB
+	zlog.Logger.Info().Msgf("DSN from config: %s", cfg.Database.DSN)
+	zlog.Logger.Info().Msgf("Config retries: %d, delay: %d", cfg.Database.ConnectRetries, cfg.Database.ConnectRetryDelaySec)
+
+	// ВРЕМЕННО: Принудительно устанавливаем значения если они 0
+	connectRetries := cfg.Database.ConnectRetries
+	connectDelay := cfg.Database.ConnectRetryDelaySec
+
+	if connectRetries == 0 {
+		connectRetries = 15 // хардкод
+		zlog.Logger.Warn().Msg("connect_retries was 0, using hardcoded value 15")
+	}
+	if connectDelay == 0 {
+		connectDelay = 3 // хардкод
+		zlog.Logger.Warn().Msg("connect_retry_delay_sec was 0, using hardcoded value 3")
+	}
+
+	// Setup DB with more detailed logging
 	masterDSN := cfg.Database.DSN
 	slaves := []string{}
 	if strings.TrimSpace(cfg.Database.Slaves) != "" {
@@ -64,28 +85,59 @@ func main() {
 		ConnMaxLifetime: time.Duration(cfg.Database.ConnMaxLifetimeSec) * time.Second,
 	}
 
+	zlog.Logger.Info().Msgf("Attempting to connect to database with %d retries, %d second delay",
+		connectRetries, connectDelay)
+
 	var database *dbpg.DB
-	for i := 0; i < cfg.Database.ConnectRetries; i++ {
+	for i := 0; i < connectRetries; i++ {
+		zlog.Logger.Info().Msgf("Database connection attempt %d/%d", i+1, connectRetries)
+
 		database, err = dbpg.New(masterDSN, slaves, dbOpts)
-		if err == nil {
-			if pingErr := database.Master.Ping(); pingErr == nil {
-				break
-			} else {
-				zlog.Logger.Warn().Err(pingErr).Msg("db ping failed")
+		if err != nil {
+			zlog.Logger.Warn().Err(err).Msgf("dbpg.New failed on attempt %d/%d", i+1, connectRetries)
+			database = nil
+		} else {
+			zlog.Logger.Info().Msg("dbpg.DB created, testing connection...")
+
+			if database.Master == nil {
+				err = fmt.Errorf("database.Master is nil")
+				zlog.Logger.Warn().Err(err).Msgf("nil master connection on attempt %d/%d", i+1, connectRetries)
+			} else if pingErr := database.Master.Ping(); pingErr != nil {
+				zlog.Logger.Warn().Err(pingErr).Msgf("db ping failed on attempt %d/%d", i+1, connectRetries)
 				err = pingErr
+				if database.Master != nil {
+					database.Master.Close()
+				}
+				for _, slave := range database.Slaves {
+					if slave != nil {
+						slave.Close()
+					}
+				}
+				database = nil
+			} else {
+				zlog.Logger.Info().Msg("Database connection established successfully")
+				break
 			}
 		}
-		zlog.Logger.Warn().Err(err).Msgf("waiting for database (attempt %d/%d)", i+1, cfg.Database.ConnectRetries)
-		time.Sleep(time.Duration(cfg.Database.ConnectRetryDelaySec) * time.Second)
+
+		if i < connectRetries-1 {
+			zlog.Logger.Info().Msgf("Waiting %d seconds before next attempt...", connectDelay)
+			time.Sleep(time.Duration(connectDelay) * time.Second)
+		}
 	}
-	if err != nil {
-		zlog.Logger.Fatal().Err(err).Msg("failed to connect to database after retries")
+
+	if err != nil || database == nil {
+		zlog.Logger.Fatal().Err(err).Msg("failed to connect to database after all retries")
 	}
+
+	zlog.Logger.Info().Msg("Database connection successful, running migrations...")
 
 	// Run migrations
 	if err := infradatabase.RunMigrations(database, cfg.Migrations.Path); err != nil {
 		zlog.Logger.Fatal().Err(err).Msg("migrations failed")
 	}
+
+	zlog.Logger.Info().Msg("Migrations completed successfully")
 
 	// Setup repository and usecase
 	repo := postgres.NewCommentRepository(database, retry.DefaultStrategy)
@@ -100,7 +152,10 @@ func main() {
 	engine := ginext.New()
 	engine.Use(middleware.LoggerMiddleware(), middleware.CORSMiddleware())
 
-	engine.Static("/", "./static")
+	engine.GET("/", func(c *ginext.Context) {
+		c.File("./static/index.html")
+	})
+	engine.Static("/static", "./static")
 
 	commentHandler := httpHandler.NewCommentHandler(uc)
 	commentHandler.RegisterRoutes(engine)
@@ -131,14 +186,16 @@ func main() {
 		zlog.Logger.Info().Msg("HTTP server stopped gracefully")
 	}
 
-	if err := database.Master.Close(); err != nil {
-		zlog.Logger.Error().Err(err).Msg("closing db master failed")
-	} else {
-		zlog.Logger.Info().Msg("db master closed")
-	}
-	for i, s := range database.Slaves {
-		if err := s.Close(); err != nil {
-			zlog.Logger.Error().Err(err).Int("slave_index", i).Msg("closing db slave failed")
+	if database != nil && database.Master != nil {
+		if err := database.Master.Close(); err != nil {
+			zlog.Logger.Error().Err(err).Msg("closing db master failed")
+		} else {
+			zlog.Logger.Info().Msg("db master closed")
+		}
+		for i, s := range database.Slaves {
+			if err := s.Close(); err != nil {
+				zlog.Logger.Error().Err(err).Int("slave_index", i).Msg("closing db slave failed")
+			}
 		}
 	}
 

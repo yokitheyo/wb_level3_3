@@ -52,5 +52,3 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 
-# Go specific
-go.sum

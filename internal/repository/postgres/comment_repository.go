@@ -24,16 +24,14 @@ func NewCommentRepository(db *dbpg.DB, strategy retry.Strategy) domain.CommentRe
 
 func (r *commentRepository) Save(ctx context.Context, c *domain.Comment) error {
 	query := `
-		INSERT INTO comments (parent_id, author, content, created_at, updated_at, deleted)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, created_at, updated_at
-	`
+    INSERT INTO comments (parent_id, author, content, deleted)
+    VALUES ($1, $2, $3, $4)
+    RETURNING id, created_at, updated_at
+`
 	return r.db.Master.QueryRowContext(ctx, query,
 		c.ParentID,
 		c.Author,
 		c.Content,
-		c.CreatedAt,
-		c.UpdatedAt,
 		c.Deleted,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
 }
